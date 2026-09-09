@@ -234,6 +234,83 @@ None of these five servers have their own login — anyone who can resolve and r
 the configured hostname can use them. See Authentication below before relying on this
 for anything beyond local testing.
 
+## Claude Code Remote Control agent
+
+A sixth service, `claude-agent` — a persistent Claude Code instance you can connect to
+and control from claude.ai/code or the Claude mobile app, from anywhere. Unlike the
+five MCP servers, this one has **no published ports and no Caddy/TLS/DNS entry** -
+Remote Control is outbound-only, registering with the Anthropic API and polling;
+connecting devices route through Anthropic's own servers, never a direct connection to
+this container. It reaches the other five MCP servers the same way any external client
+does (`claude mcp add` over their real public hostnames), not via direct network access
+- it stays on its own isolated network.
+
+No official Docker image exists for this - Remote Control's own docs don't cover
+containerizing it, `claude-agent/Dockerfile` wraps the CLI ourselves (pinned exact
+version, confirmed against both the real npm registry and the installed `claude
+--version`, same convention as every other image here).
+
+### Setup (two genuinely interactive one-time steps)
+
+Both of these need a real terminal (`docker compose run -it`, not `up -d`) - neither can
+be scripted unattended:
+
+```sh
+docker compose run --rm claude-agent 'claude login'
+```
+Prints a URL - open it on any device and complete the real account login (**a Claude
+subscription account, not an API key - confirmed unsupported by Remote Control at all**).
+The resulting session persists to the `claude-agent-home` volume.
+
+```sh
+docker compose run --rm -it claude-agent 'claude'
+```
+Accepts the workspace-trust dialog for `/workspace` - Remote Control refuses to run in a
+directory that hasn't been explicitly trusted first. Exit once trusted (Ctrl+C or `/exit`).
+
+After both, `docker compose up -d claude-agent` starts the persistent service for real.
+Until they're done, `restart: unless-stopped` just retries with backoff - harmless, same
+pattern as NetBox's first-run healthcheck race elsewhere in this pipeline.
+
+Then wire in the other five as tools, run once inside the workspace so the config
+persists on the same volume:
+```sh
+docker compose exec claude-agent sh -c '
+  claude mcp add --transport http ha-mcp             https://ha-mcp.example.com/mcp
+  claude mcp add --transport http unifi-network-mcp  https://unifi-network-mcp.example.com/mcp
+  claude mcp add --transport http unifi-protect-mcp  https://unifi-protect-mcp.example.com/mcp
+  claude mcp add --transport http unifi-access-mcp   https://unifi-access-mcp.example.com/mcp
+  claude mcp add --transport http truenas-mcp        https://truenas-mcp.example.com/mcp
+'
+```
+(substitute your real hostnames from `.env`).
+
+### Design choices
+
+- **`--permission-mode default`** - every tool call gets forwarded to your connected
+  device for approval, same as a normal interactive session. `acceptEdits`/other
+  reduced-friction modes exist but are a real tradeoff worth considering deliberately
+  later, not the starting point for a new deployment.
+- **Named volumes, not bind mounts**, for both `/workspace` and `/home/node` - matches
+  this stack's own `caddy_data` precedent (Caddy's cert cache) rather than a host path.
+  Avoids host UID/permission-mapping friction entirely (unlike the `secrets:` files,
+  which deliberately go the other way - see Setup above), and `docker volume rm` is a
+  clean atomic reset if you ever want this agent's state wiped.
+- **The whole home directory is mounted, not just `~/.claude`** - Claude Code's own
+  session/auth state also lives in `~/.claude.json`, a file at the home root, not nested
+  inside `~/.claude/` - confirmed directly from this session's own tool output while
+  building this.
+- **Deliberately skips this stack's `read_only`/`cap_drop: [ALL]` hardening** - unlike
+  the five narrow, well-understood MCP wrappers, this is a general-purpose agent whose
+  real filesystem/tool needs aren't fully enumerable in advance; locking the root
+  filesystem down risks breaking real functionality for no clear benefit given
+  `--permission-mode default` is already the primary safety control here.
+- **Not a devcontainer** - a [devcontainer](https://code.claude.com/docs/en/devcontainer)
+  is a per-project development environment (VS Code's Dev Containers spec, tied to
+  editing a specific repo, typically ephemeral). This is a persistent, always-on service
+  not tied to any particular codebase - different lifecycle, different purpose, same
+  underlying idea of "Claude Code in a box."
+
 ## Authentication
 
 **Not built yet - the single biggest thing before this stack should be trusted with

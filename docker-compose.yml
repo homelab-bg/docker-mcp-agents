@@ -246,6 +246,53 @@ services:
     mem_limit: 256m
     cpus: 0.5
 
+  # Claude Code Remote Control - persistent, remotely-controllable general
+  # agent, confirmed outbound-only (registers with the Anthropic API and
+  # polls; connecting devices route through Anthropic's servers, never a
+  # direct connection to this container) - the only service here with no
+  # published ports and no Caddy/TLS/DNS entry at all. Reaches the other
+  # five MCP servers the same way any external client does: `claude mcp
+  # add` over their real public HTTPS hostnames, not direct network
+  # access - stays on its own isolated network, doesn't join theirs.
+  #
+  # No official image exists for this - Remote Control's own docs don't
+  # document a containerization path, this wraps the CLI ourselves (see
+  # claude-agent/Dockerfile). Two genuinely interactive one-time steps are
+  # required before this can start successfully - `claude login` (real
+  # account login, not an API key - confirmed unsupported) and running
+  # `claude` once in /workspace to accept its workspace-trust dialog. Until
+  # both are done, restart: unless-stopped just retries with backoff -
+  # harmless, same pattern as NetBox's first-run healthcheck race elsewhere
+  # in this pipeline. See README's Setup section for the exact bootstrap
+  # commands.
+  #
+  # Deliberately skips this stack's usual read_only/cap_drop:[ALL] hardening
+  # - unlike the five narrow, well-understood MCP wrappers, this is a
+  # general-purpose agent whose actual filesystem/tool needs aren't fully
+  # enumerable in advance, so locking the root filesystem down risks
+  # breaking real functionality. --permission-mode default (every tool call
+  # forwarded to you for approval) is the primary safety control here, not
+  # container-level restriction.
+  claude-agent:
+    build: ./claude-agent
+    image: claude-agent:2.1.266
+    pull_policy: build
+    container_name: claude-agent
+    restart: unless-stopped
+    networks: [claude_agent_net]
+    working_dir: /workspace
+    command: >
+      claude remote-control
+      --spawn same-dir
+      --permission-mode default
+      --name docker-mcp-agents
+    volumes:
+      - claude-agent-workspace:/workspace
+      - claude-agent-home:/home/node   # whole home dir, not just ~/.claude - auth/session state also lives in ~/.claude.json, at the home root, not nested inside ~/.claude/
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 1g
+    cpus: 1.0
+
 networks:
   ha_mcp_net:
     name: mcp-ha-net
@@ -262,9 +309,14 @@ networks:
   truenas_mcp_net:
     name: mcp-truenas-net
     driver: bridge
+  claude_agent_net:
+    name: mcp-claude-agent-net
+    driver: bridge
 
 volumes:
   caddy_data:
+  claude-agent-workspace:
+  claude-agent-home:
 
 secrets:
   ha_token:
