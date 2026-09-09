@@ -316,6 +316,16 @@ for yank notices before pinning a new version, not just whether it exists.
 - **Claude Code confirmed working** - `claude mcp add --transport http <name>
   https://<host>.lan.homelab.green/mcp` for each of the 5, then `claude mcp get <name>` reports
   `✔ Connected` for all of them (a real health check, not just a config write).
+- **`TRUENAS_API_KEY`'s scope is unverified, deliberately deferred** - the backend TrueNAS
+  is on 24.10.2.2, which (confirmed live via the actual UI) ties an API key 1:1 to a user
+  account with just a rename field, not the newer standalone key-creation flow with a
+  username picker that 25.04+ uses. Not worth reverse-engineering the 24.x-specific UI in
+  depth - a planned upgrade straight to 25.10 is already on the roadmap once a backup unit
+  is replicating, and the 25.04+ model (user-linked keys, a `readonly_administrators`
+  role/group) is what to target then. `truenas-mcp` has no application-level permission
+  gate of its own (confirmed - checked the full ~187-line installed source), so this is
+  the only real control point; until it's addressed, `truenas-mcp` should be treated as
+  having whatever privilege its current key actually carries, not assumed read-only.
 - No version-bump automation exists yet. `sirkirby/unifi-mcp` ships very frequently and
   has a real history of yanking broken releases from PyPI (see Version pinning above) -
   any automation here needs to check for yank notices, not just whether a new tag exists.
