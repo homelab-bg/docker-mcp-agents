@@ -40,10 +40,15 @@
 4. **Pull and build the images** before you can inspect them — `docker inspect` only reads
    what's already local, it doesn't reach out to the registry:
    ```
-   docker compose pull          # fetches ha-mcp and all three unifi-*-mcp images —
-                                 # truenas-mcp is build:, not image:, so pull skips it
-   docker compose build truenas-mcp
+   docker compose pull          # fetches ha-mcp and all three unifi-*-mcp images
+   docker compose build truenas-mcp caddy
    ```
+   `truenas-mcp` and `caddy` both set `pull_policy: build` (confirmed live this is needed -
+   without it, `docker compose pull` tries to pull their `image:` tags from a registry
+   where they don't exist, failing with "access denied ... repository does not exist",
+   even though they're build-only). `docker compose up -d` alone would build them
+   automatically regardless; pulling/building explicitly here is just to get them local
+   before the inspect step below.
 5. **Verified** — all four images pull cleanly and their `docker inspect` output confirms
    every pinned tag is real:
    ```

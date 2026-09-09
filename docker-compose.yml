@@ -123,6 +123,11 @@ services:
     image: truenas-mcp:0.1.1   # explicit tag — without this, Compose auto-names it
                                 # <project-dir>-truenas-mcp:latest, which floats and
                                 # doesn't reflect the pinned version actually baked in
+    pull_policy: build   # confirmed live: without this, `docker compose pull` tries to
+                          # pull this tag from a registry (it doesn't exist there - build-
+                          # only), failing with "access denied ... repository does not
+                          # exist". This tells Compose the image only ever comes from
+                          # building locally, never a registry pull.
     container_name: truenas-mcp
     restart: unless-stopped
     networks: [truenas_mcp_net]
@@ -157,6 +162,7 @@ services:
   caddy:
     build: ./caddy   # custom build with caddy-dns/route53 — see caddy/Dockerfile for why not a pre-built image
     image: mcp-caddy:2.11.4-route53-1.6.2
+    pull_policy: build   # same reasoning as truenas-mcp above - build-only, not a registry pull
     container_name: mcp-caddy
     restart: unless-stopped
     # The only service here that joins more than one network — it's the
