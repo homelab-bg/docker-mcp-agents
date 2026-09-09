@@ -1,0 +1,70 @@
+{
+	email {$LETSENCRYPT_EMAIL}
+}
+
+# Each site block below uses DNS-01 via Route53 — no port 80 needed at all,
+# and no requirement for this host to be internet-reachable to issue a
+# valid, browser-trusted cert. Reachability to each backend is by container
+# DNS name since Caddy joins all five per-service networks directly (see
+# docker-compose.yml) — nothing else joins more than one network, so this
+# container is the only thing here with reach across all five.
+#
+# TODO: wire in forward_auth once a self-hosted SSO/auth provider exists in
+# front of this - see README's Authentication section. Uncomment and adjust
+# once one's actually deployed; each site block needs the same forward_auth
+# directive added ahead of its reverse_proxy line. Not built yet.
+#
+# forward_auth <auth-provider-host>:<port> {
+# 	uri /outpost.goauthentik.io/auth/caddy
+# 	copy_headers X-Authentik-Username X-Authentik-Groups X-Authentik-Email X-Authentik-Name X-Authentik-Uid
+# }
+
+(dns01) {
+	tls {
+		dns route53 {
+			hosted_zone_id {$AWS_HOSTED_ZONE_ID}
+		}
+
+		# Required, not cosmetic: Docker's internal resolver forwards to
+		# this LXC/host's configured nameservers, which are authoritative
+		# for the internal LAN zone and won't have the public
+		# _acme-challenge TXT record the DNS-01 challenge needs - same
+		# split-horizon DNS issue confirmed live on tf-pve-netbox's Caddy.
+		resolvers 9.9.9.9
+
+		# Confirmed live on tf-pve-netbox's Caddy: 9.9.9.9 can negatively
+		# cache the challenge record's NXDOMAIN from before Route53's
+		# change propagates, then keep serving that cached NXDOMAIN past
+		# Caddy's default ~2m propagation_timeout - every retry in that
+		# window fails identically even though the record is genuinely
+		# live elsewhere. 5m gives a single attempt enough runway to
+		# outlast that negative-cache window instead of relying on lucky
+		# retry timing.
+		propagation_timeout 5m
+	}
+}
+
+{$HA_MCP_HOST} {
+	import dns01
+	reverse_proxy ha-mcp:8000
+}
+
+{$UNIFI_NETWORK_MCP_HOST} {
+	import dns01
+	reverse_proxy unifi-network-mcp:3000
+}
+
+{$UNIFI_PROTECT_MCP_HOST} {
+	import dns01
+	reverse_proxy unifi-protect-mcp:3001
+}
+
+{$UNIFI_ACCESS_MCP_HOST} {
+	import dns01
+	reverse_proxy unifi-access-mcp:3002
+}
+
+{$TRUENAS_MCP_HOST} {
+	import dns01
+	reverse_proxy truenas-mcp:8000
+}

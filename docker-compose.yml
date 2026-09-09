@@ -1,0 +1,226 @@
+# docker-compose.yml — HA / UniFi (Network+Protect+Access) / TrueNAS MCP stack
+#
+# Two different secret-injection approaches are used here, depending on what
+# each upstream project actually supports:
+#
+# - unifi-network-mcp, unifi-protect-mcp, unifi-access-mcp natively support
+#   the `_FILE` convention (UNIFI_PASSWORD_FILE) — confirmed in the project's
+#   own README. Docker's `secrets:` mechanism does all the work here, same as
+#   Postgres's official image; no wrapper script needed.
+# - ha-mcp and truenas-mcp do NOT support this (confirmed by testing
+#   HOMEASSISTANT_TOKEN_FILE directly against ha-mcp — it failed outright;
+#   no evidence of support for truenas-ws-mcp either). Each gets a small
+#   entrypoint wrapper that reads the secret from its Compose-mounted
+#   /run/secrets/<name> file, exports it as the env var the binary actually
+#   expects, then `exec "$@"` — Compose only overrides `entrypoint:` here
+#   (never `command:`), so Docker passes each image's original CMD through
+#   as arguments, meaning the wrapper never needs to know or guess the
+#   actual binary name (see README.md — ha-mcp turned out to run via
+#   `fastmcp run fastmcp.json`, not a standalone `ha-mcp` binary, discovered
+#   via `docker inspect`).
+#
+# TLS/reverse proxy: a single `caddy` service in this same file fronts all
+# five backends with real, browser-trusted certs via Let's Encrypt DNS-01
+# (Route53) — no port 80, no requirement for this host to be internet-
+# reachable. Deliberately self-contained rather than relying on the
+# separate docker-traefik-portainer stack: that would need Traefik attached
+# to these networks from its own compose file, which can't happen in the
+# same `docker compose up` as this project creates them — a real startup-
+# order race avoided entirely by keeping the proxy in this file instead.
+# `caddy` is the only service that joins more than one network (all five
+# backends' private networks) — see its own comment below for why that
+# doesn't reintroduce cross-service reachability between the backends.
+
+services:
+  ha-mcp:
+    image: ghcr.io/homeassistant-ai/ha-mcp:8.4.3
+    container_name: ha-mcp
+    restart: unless-stopped
+    networks: [ha_mcp_net]
+    entrypoint: ["/entrypoints/ha-mcp-entrypoint.sh"]
+    # Default CMD is `fastmcp run fastmcp.json`, which defaults to stdio —
+    # that's what caused the restart loop (stdin closes immediately in a
+    # detached container, stdio treats that as the shutdown signal). Unlike
+    # the UniFi servers, ha-mcp's plain FastMCP CLI doesn't auto-detect
+    # container context, so the transport has to be forced explicitly.
+    command: ["fastmcp", "run", "fastmcp.json", "--transport", "http", "--host", "0.0.0.0", "--port", "8000"]
+    volumes:
+      - ./entrypoints/ha-mcp-entrypoint.sh:/entrypoints/ha-mcp-entrypoint.sh:ro
+    environment:
+      HOMEASSISTANT_URL: ${HOMEASSISTANT_URL}   # not secret — fine as a plain env var
+    secrets:
+      - ha_token
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    cpus: 0.5
+
+  unifi-network-mcp:
+    image: ghcr.io/sirkirby/unifi-network-mcp:0.32.3   # pinned — confirmed current via PyPI release history, 8 Sep 2026
+    container_name: unifi-network-mcp
+    restart: unless-stopped
+    networks: [unifi_network_net]
+    environment:
+      UNIFI_HOST: ${UNIFI_HOST}
+      UNIFI_USERNAME: ${UNIFI_USERNAME}
+      UNIFI_PASSWORD_FILE: /run/secrets/unifi_password   # shared account across all 3 — see README
+      UNIFI_PORT: "443"
+      UNIFI_SITE: "default"
+      UNIFI_VERIFY_SSL: "false"
+    secrets:
+      - unifi_password
+    read_only: true
+    tmpfs: ["/tmp", "/root/.config"]  # shared unifi_core writes a session cache here — read_only breaks it otherwise
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    cpus: 0.5
+
+  unifi-protect-mcp:
+    image: ghcr.io/sirkirby/unifi-protect-mcp:0.8.2   # pinned — confirmed current via PyPI release history, 8 Sep 2026
+    container_name: unifi-protect-mcp
+    restart: unless-stopped
+    networks: [unifi_protect_net]
+    environment:
+      UNIFI_HOST: ${UNIFI_HOST}          # same controller, same account — shared vars, see project's fallback
+      UNIFI_USERNAME: ${UNIFI_USERNAME}
+      UNIFI_PASSWORD_FILE: /run/secrets/unifi_password
+      UNIFI_PORT: "443"
+      UNIFI_VERIFY_SSL: "false"
+    secrets:
+      - unifi_password
+    read_only: true
+    tmpfs: ["/tmp", "/root/.config"]  # shared unifi_core writes a session cache here — read_only breaks it otherwise
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    cpus: 0.5
+
+  unifi-access-mcp:
+    image: ghcr.io/sirkirby/unifi-access-mcp:0.6.3   # pinned — confirmed current via PyPI release history, 8 Sep 2026
+    container_name: unifi-access-mcp
+    restart: unless-stopped
+    networks: [unifi_access_net]
+    environment:
+      UNIFI_HOST: ${UNIFI_HOST}
+      UNIFI_USERNAME: ${UNIFI_USERNAME}
+      UNIFI_PASSWORD_FILE: /run/secrets/unifi_password
+      UNIFI_PORT: "443"
+      UNIFI_VERIFY_SSL: "false"
+    secrets:
+      - unifi_password
+    read_only: true
+    tmpfs: ["/tmp", "/root/.config"]  # shared unifi_core writes a session cache here — read_only breaks it otherwise
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    cpus: 0.5
+
+  truenas-mcp:
+    build: ./truenas-mcp   # wraps community truenas-ws-mcp==0.1.1
+    image: truenas-mcp:0.1.1   # explicit tag — without this, Compose auto-names it
+                                # <project-dir>-truenas-mcp:latest, which floats and
+                                # doesn't reflect the pinned version actually baked in
+    container_name: truenas-mcp
+    restart: unless-stopped
+    networks: [truenas_mcp_net]
+    entrypoint: ["/entrypoints/truenas-mcp-entrypoint.sh"]
+    # truenas_ws_mcp/server.py calls mcp.run() with no transport arg (stdio
+    # default), and its own `truenas-ws-mcp` console script offers no CLI
+    # flags to override that (confirmed — --help was silently ignored).
+    # `fastmcp run` bypasses the package's own script logic entirely and
+    # calls .run() on the discovered server object itself — but it wants
+    # an actual file path before the `:object`, not a dotted Python module
+    # path (confirmed: `truenas_ws_mcp.server:mcp` failed with "File not
+    # found: /truenas_ws_mcp.server" — it was treated as a filesystem path,
+    # not `import`ed). The entrypoint wrapper resolves that file path at
+    # runtime via Python's own import machinery rather than hardcoding a
+    # python3.12-specific site-packages path here — this list is just the
+    # transport flags the wrapper appends to its own `fastmcp run <resolved-path>:mcp`.
+    command: ["--transport", "http", "--host", "0.0.0.0", "--port", "8000"]
+    volumes:
+      - ./entrypoints/truenas-mcp-entrypoint.sh:/entrypoints/truenas-mcp-entrypoint.sh:ro
+    environment:
+      TRUENAS_URL: ${TRUENAS_URL}       # bare hostname, e.g. truenas.example.com — confirmed the library handles the wss://.../websocket parts internally
+      TRUENAS_VERIFY_SSL: "false"
+    secrets:
+      - truenas_api_key
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    cpus: 0.5
+
+  caddy:
+    build: ./caddy   # custom build with caddy-dns/route53 — see caddy/Dockerfile for why not a pre-built image
+    image: mcp-caddy:2.11.4-route53-1.6.2
+    container_name: mcp-caddy
+    restart: unless-stopped
+    # The only service here that joins more than one network — it's the
+    # single trusted ingress point that legitimately needs reachability to
+    # all five backends. Nothing else joins more than its own private
+    # network, so this doesn't reintroduce the isolation problem from the
+    # earlier shared-network design: the five MCP services still can't
+    # reach each other, only Caddy can reach each of them individually.
+    networks:
+      - ha_mcp_net
+      - unifi_network_net
+      - unifi_protect_net
+      - unifi_access_net
+      - truenas_mcp_net
+    ports:
+      - "443:443"   # DNS-01 challenge — port 80 never needed, not published
+    environment:
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL}
+      HA_MCP_HOST: ${HA_MCP_HOST}
+      UNIFI_NETWORK_MCP_HOST: ${UNIFI_NETWORK_MCP_HOST}
+      UNIFI_PROTECT_MCP_HOST: ${UNIFI_PROTECT_MCP_HOST}
+      UNIFI_ACCESS_MCP_HOST: ${UNIFI_ACCESS_MCP_HOST}
+      TRUENAS_MCP_HOST: ${TRUENAS_MCP_HOST}
+      AWS_SHARED_CREDENTIALS_FILE: /run/secrets/aws_credentials
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_HOSTED_ZONE_ID: ${AWS_HOSTED_ZONE_ID}   # optional — skips an automatic by-name zone lookup
+    secrets:
+      - aws_credentials
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data   # cert storage — needs to persist, or a restart re-issues and risks LE rate limits
+    read_only: true
+    tmpfs: ["/tmp", "/config"]   # /config is just Caddy's autosaved copy of the Caddyfile, not authoritative
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    cpus: 0.5
+
+networks:
+  ha_mcp_net:
+    name: mcp-ha-net
+    driver: bridge
+  unifi_network_net:
+    name: mcp-unifi-network-net
+    driver: bridge
+  unifi_protect_net:
+    name: mcp-unifi-protect-net
+    driver: bridge
+  unifi_access_net:
+    name: mcp-unifi-access-net
+    driver: bridge
+  truenas_mcp_net:
+    name: mcp-truenas-net
+    driver: bridge
+
+volumes:
+  caddy_data:
+
+secrets:
+  ha_token:
+    file: ./secrets/ha_token.txt
+  unifi_password:
+    file: ./secrets/unifi_password.txt
+  truenas_api_key:
+    file: ./secrets/truenas_api_key.txt
+  aws_credentials:
+    file: ./secrets/aws_credentials
