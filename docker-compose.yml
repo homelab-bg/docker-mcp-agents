@@ -48,6 +48,13 @@ services:
       - ./entrypoints/ha-mcp-entrypoint.sh:/entrypoints/ha-mcp-entrypoint.sh:ro
     environment:
       HOMEASSISTANT_URL: ${HOMEASSISTANT_URL}   # not secret — fine as a plain env var
+      # Confirmed live in ha_mcp/read_only.py: blocks every write tool at
+      # both listing and call time (fail-closed for unannotated tools),
+      # not just a soft confirm flow. The HA token itself is full-admin
+      # (HA tokens can't be partially scoped) and nothing else here gates
+      # it, so this is the only real restriction in front of 87 tools
+      # including delete file, write YAML config, manage backups, restart.
+      READ_ONLY_MODE: "true"
     secrets:
       - ha_token
     read_only: true
@@ -105,6 +112,15 @@ services:
       UNIFI_VERIFY_SSL: "false"
       UNIFI_MCP_ALLOWED_HOSTS: "localhost,127.0.0.1,${UNIFI_PROTECT_MCP_HOST}"   # see unifi-network-mcp above for why
       UNIFI_MCP_ENABLE_DNS_REBINDING_PROTECTION: "false"   # see unifi-network-mcp above for why
+      # Hard policy gates, not just the soft confirm-before-mutate flow -
+      # camera/recording/system mutations have real consequences (deleting
+      # footage, disarming an alarm) that the confirm flow alone doesn't
+      # authenticate against (confirmed live: "confirm=True is an execution
+      # guard, not caller authentication" per the project's own security
+      # docs). Read is never gateable - always allowed regardless.
+      UNIFI_POLICY_PROTECT_CREATE: "false"
+      UNIFI_POLICY_PROTECT_UPDATE: "false"
+      UNIFI_POLICY_PROTECT_DELETE: "false"
     secrets:
       - unifi_password
     read_only: true
@@ -127,6 +143,12 @@ services:
       UNIFI_VERIFY_SSL: "false"
       UNIFI_MCP_ALLOWED_HOSTS: "localhost,127.0.0.1,${UNIFI_ACCESS_MCP_HOST}"   # see unifi-network-mcp above for why
       UNIFI_MCP_ENABLE_DNS_REBINDING_PROTECTION: "false"   # see unifi-network-mcp above for why
+      # Hard policy gates - physical door/access control, the highest-
+      # consequence category in this whole stack. Same reasoning as
+      # unifi-protect-mcp above: confirm=True isn't caller authentication.
+      UNIFI_POLICY_ACCESS_CREATE: "false"
+      UNIFI_POLICY_ACCESS_UPDATE: "false"
+      UNIFI_POLICY_ACCESS_DELETE: "false"
     secrets:
       - unifi_password
     read_only: true
