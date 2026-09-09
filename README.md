@@ -310,9 +310,9 @@ for yank notices before pinning a new version, not just whether it exists.
   exploiting DNS rebinding, which doesn't apply to a deliberate HTTPS API client like Claude
   Desktop/Code behind our own TLS+DNS. `UNIFI_MCP_ALLOWED_HOSTS` is kept set too, in case a
   future release fixes the underlying issue and this can be re-enabled.
-- Only Claude Desktop has actually been connected and tested so far. Claude Code should
-  use the same connector mechanics (`claude mcp add --transport http ...`) but hasn't
-  been tried yet.
+- **Claude Code confirmed working** - `claude mcp add --transport http <name>
+  https://<host>.lan.homelab.green/mcp` for each of the 5, then `claude mcp get <name>` reports
+  `✔ Connected` for all of them (a real health check, not just a config write).
 - No version-bump automation exists yet. `sirkirby/unifi-mcp` ships very frequently and
   has a real history of yanking broken releases from PyPI (see Version pinning above) -
   any automation here needs to check for yank notices, not just whether a new tag exists.
