@@ -1,6 +1,10 @@
-{
-	email {$LETSENCRYPT_EMAIL}
-}
+# No global `email` directive - confirmed live that Caddy's Caddyfile parser
+# rejects `email {$LETSENCRYPT_EMAIL}` outright ("wrong argument count") once
+# the env var is genuinely unset, it doesn't just skip the directive. Same
+# as docker-infisical's own Caddyfile: Let's Encrypt only uses this for
+# expiry/problem notifications, Caddy works fine without it. Set a real
+# LETSENCRYPT_EMAIL in .env and add `email {$LETSENCRYPT_EMAIL}` back as a
+# global option block if you want those notifications.
 
 # Each site block below uses DNS-01 via Route53 — no port 80 needed at all,
 # and no requirement for this host to be internet-reachable to issue a
