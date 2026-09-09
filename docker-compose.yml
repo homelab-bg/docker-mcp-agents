@@ -69,11 +69,20 @@ services:
       UNIFI_PORT: "443"
       UNIFI_SITE: "default"
       UNIFI_VERIFY_SSL: "false"
-      # Confirmed live: without this, the server rejects every request behind
-      # Caddy with "Invalid Host header" - its own DNS-rebinding protection
-      # only trusts localhost/127.0.0.1 by default. Documented at
-      # https://github.com/sirkirby/unifi-mcp/blob/main/apps/network/docs/transports.md
+      # UNIFI_MCP_ALLOWED_HOSTS alone wasn't enough - confirmed live the pinned
+      # 0.32.3's actual request handling still rejects a Host header that
+      # exactly matches this list (verified the env var and its parsing are
+      # both correct via `python3 -c` inside the container - the mismatch is
+      # inside the package's own server construction, not our config).
+      # Disabling DNS rebinding protection is the project's own documented
+      # escape hatch for exactly this case ("proxy deployments where
+      # allowed_hosts is insufficient") - and it's a check against malicious
+      # *browser* pages exploiting DNS rebinding, which doesn't apply to a
+      # deliberate HTTPS API client like Claude Desktop/Code behind our own
+      # TLS+DNS. Keeping ALLOWED_HOSTS set too, in case a future version
+      # fixes the underlying issue and this can be re-enabled.
       UNIFI_MCP_ALLOWED_HOSTS: "localhost,127.0.0.1,${UNIFI_NETWORK_MCP_HOST}"
+      UNIFI_MCP_ENABLE_DNS_REBINDING_PROTECTION: "false"
     secrets:
       - unifi_password
     read_only: true
@@ -95,6 +104,7 @@ services:
       UNIFI_PORT: "443"
       UNIFI_VERIFY_SSL: "false"
       UNIFI_MCP_ALLOWED_HOSTS: "localhost,127.0.0.1,${UNIFI_PROTECT_MCP_HOST}"   # see unifi-network-mcp above for why
+      UNIFI_MCP_ENABLE_DNS_REBINDING_PROTECTION: "false"   # see unifi-network-mcp above for why
     secrets:
       - unifi_password
     read_only: true
@@ -116,6 +126,7 @@ services:
       UNIFI_PORT: "443"
       UNIFI_VERIFY_SSL: "false"
       UNIFI_MCP_ALLOWED_HOSTS: "localhost,127.0.0.1,${UNIFI_ACCESS_MCP_HOST}"   # see unifi-network-mcp above for why
+      UNIFI_MCP_ENABLE_DNS_REBINDING_PROTECTION: "false"   # see unifi-network-mcp above for why
     secrets:
       - unifi_password
     read_only: true

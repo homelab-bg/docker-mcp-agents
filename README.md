@@ -298,12 +298,18 @@ for yank notices before pinning a new version, not just whether it exists.
 
 ## Notes
 
-- **All three `unifi-*-mcp` services need `UNIFI_MCP_ALLOWED_HOSTS`** set to their own public
-  hostname (plus `localhost,127.0.0.1`) - confirmed live, without it every request behind Caddy
-  gets rejected with `Invalid Host header`. Their own DNS-rebinding protection only trusts
-  loopback by default; `ha-mcp` and `truenas-mcp` don't have this restriction. See
-  [transports.md](https://github.com/sirkirby/unifi-mcp/blob/main/apps/network/docs/transports.md)
-  in the upstream project.
+- **All three `unifi-*-mcp` services need `UNIFI_MCP_ENABLE_DNS_REBINDING_PROTECTION=false`** -
+  their own DNS-rebinding protection (`ha-mcp`/`truenas-mcp` don't have this) rejects every
+  request behind Caddy with `Invalid Host header`, even with `UNIFI_MCP_ALLOWED_HOSTS` set
+  correctly. Confirmed live by reading the pinned `0.32.3`'s actual installed source
+  (`runtime.py`) inside the running container: the env var and its parsing are both genuinely
+  correct (verified via `python3 -c` inside the container), so the mismatch is inside the
+  package's own server construction, not anything on our side. Disabling the check is the
+  project's own documented escape hatch for exactly this case ("proxy deployments where
+  allowed_hosts is insufficient") - and it's a defense against malicious *browser* pages
+  exploiting DNS rebinding, which doesn't apply to a deliberate HTTPS API client like Claude
+  Desktop/Code behind our own TLS+DNS. `UNIFI_MCP_ALLOWED_HOSTS` is kept set too, in case a
+  future release fixes the underlying issue and this can be re-enabled.
 - Only Claude Desktop has actually been connected and tested so far. Claude Code should
   use the same connector mechanics (`claude mcp add --transport http ...`) but hasn't
   been tried yet.
