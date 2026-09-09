@@ -175,16 +175,13 @@ services:
     # truenas_ws_mcp/server.py calls mcp.run() with no transport arg (stdio
     # default), and its own `truenas-ws-mcp` console script offers no CLI
     # flags to override that (confirmed — --help was silently ignored).
-    # `fastmcp run` bypasses the package's own script logic entirely and
-    # calls .run() on the discovered server object itself — but it wants
-    # an actual file path before the `:object`, not a dotted Python module
-    # path (confirmed: `truenas_ws_mcp.server:mcp` failed with "File not
-    # found: /truenas_ws_mcp.server" — it was treated as a filesystem path,
-    # not `import`ed). The entrypoint wrapper resolves that file path at
-    # runtime via Python's own import machinery rather than hardcoding a
-    # python3.12-specific site-packages path here — this list is just the
-    # transport flags the wrapper appends to its own `fastmcp run <resolved-path>:mcp`.
-    command: ["--transport", "http", "--host", "0.0.0.0", "--port", "8000"]
+    # The entrypoint imports the module directly and calls
+    # `mcp.run(transport="http", ...)` itself, hardcoding host/port there -
+    # no command: override needed here. This replaced an earlier
+    # `fastmcp run <file>:mcp --transport http` approach that accepted
+    # connections but returned an empty tools/list despite tools genuinely
+    # being registered (confirmed live) - see the entrypoint script's own
+    # comment for the full story.
     volumes:
       - ./entrypoints/truenas-mcp-entrypoint.sh:/entrypoints/truenas-mcp-entrypoint.sh:ro
     environment:

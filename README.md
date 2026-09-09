@@ -149,22 +149,25 @@ needed source inspection to resolve, since its own console script offers no CLI 
 all — `--help` was silently ignored rather than erroring, because there's no argument
 parsing to catch it. Inspecting the installed package directly
 (`truenas_ws_mcp/server.py`) showed it calls `mcp.run()` with no transport argument —
-hardcoded to FastMCP's stdio default, with no env var or flag to override. Fixed the
-same way as `ha-mcp`, pointing `fastmcp run` at the server object directly since it
-bypasses the package's own script logic entirely and calls `.run()` itself — but it
-needs an actual **file path** before the `:object`, not a dotted Python module path
-(`truenas_ws_mcp.server:mcp` failed outright — `"File not found: /truenas_ws_mcp.server"`,
-treated as a filesystem path rather than `import`ed). Rather than hardcode a
-`python3.12`-specific site-packages path in the compose file (fragile — breaks silently
-on the next Python version bump in the Dockerfile), the entrypoint wrapper resolves it
-at runtime via Python's own import machinery:
+hardcoded to FastMCP's stdio default, with no env var or flag to override.
+
+First fix attempt used `fastmcp run <file>:mcp --transport http` (bypassing the
+package's own script logic, calling `.run()` on the discovered server object directly).
+That accepted connections and answered `initialize` correctly, but **`tools/list` came
+back genuinely empty** despite all 59 tools being registered - confirmed by importing
+the module directly in a Python shell and calling `mcp.list_tools()` in-process (59
+tools, real names). Matches a known class of FastMCP streamable-http session-handling
+issue, not a bug in `truenas_ws_mcp`'s own tool definitions - same module, same
+registered tools, calling `.run()` programmatically instead doesn't have the problem.
+The entrypoint now does exactly that:
 ```sh
-SERVER_FILE="$(python3 -c 'import truenas_ws_mcp.server as m; print(m.__file__)')"
-exec fastmcp run "${SERVER_FILE}:mcp" "$@"
+exec python3 -c "
+import truenas_ws_mcp.server as s
+s.mcp.run(transport='http', host='0.0.0.0', port=8000)
+"
 ```
-`docker-compose.yml`'s `command:` for this service is now just the transport flags
-(`--transport http --host 0.0.0.0 --port 8000`) — the wrapper builds the full
-`fastmcp run <resolved-path>:mcp` invocation around them.
+No `command:` override needed in `docker-compose.yml` anymore - host/port are hardcoded
+in the entrypoint itself.
 
 ## Connecting from Claude Desktop
 

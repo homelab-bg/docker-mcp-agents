@@ -3,13 +3,16 @@ set -eu
 
 export TRUENAS_API_KEY="$(cat /run/secrets/truenas_api_key)"
 
-# Resolve the installed package's server.py path at runtime via Python's own
-# import machinery, rather than hardcoding a python3.12-specific site-packages
-# path in docker-compose.yml — this stays correct across Python version bumps
-# in the Dockerfile without needing a matching edit in the compose file.
-SERVER_FILE="$(python3 -c 'import truenas_ws_mcp.server as m; print(m.__file__)')"
-
-# "$@" here is just the transport flags (--transport http --host ... --port ...)
-# passed via compose `command:` — fastmcp run itself and the resolved file:object
-# path are constructed here, not passed in from compose.
-exec fastmcp run "${SERVER_FILE}:mcp" "$@"
+# Confirmed live: `fastmcp run <file>:mcp --transport http` (the previous
+# approach here) accepts connections and answers `initialize` correctly, but
+# `tools/list` comes back empty ({"tools":[]}) despite all 59 tools genuinely
+# being registered - confirmed by importing the module directly and calling
+# `mcp.list_tools()` in-process. Calling the FastMCP object's own `.run()`
+# method programmatically instead does not have this problem - same module,
+# same registered tools, real tools/list results. This matches a known class
+# of FastMCP streamable-http session-handling issue (not unique to this
+# package), not a bug in truenas_ws_mcp's own tool definitions.
+exec python3 -c "
+import truenas_ws_mcp.server as s
+s.mcp.run(transport='http', host='0.0.0.0', port=8000)
+"
