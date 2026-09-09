@@ -196,6 +196,14 @@ services:
       - caddy_data:/data   # cert storage — needs to persist, or a restart re-issues and risks LE rate limits
     read_only: true
     tmpfs: ["/tmp", "/config"]   # /config is just Caddy's autosaved copy of the Caddyfile, not authoritative
+    # Confirmed live: cap_drop: [ALL] + no-new-privileges together block Caddy
+    # from binding port 443 at all - "exec /usr/bin/caddy: operation not
+    # permitted" on every start, since NET_BIND_SERVICE (needed to bind a
+    # privileged port <1024) can't be gained via the binary's own file
+    # capability once no-new-privileges is set. Adding just that one
+    # capability back is the standard fix - keeps every other capability
+    # dropped, doesn't need to relax no-new-privileges itself.
+    cap_add: [NET_BIND_SERVICE]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     mem_limit: 256m
