@@ -298,6 +298,12 @@ for yank notices before pinning a new version, not just whether it exists.
 
 ## Notes
 
+- **All three `unifi-*-mcp` services need `UNIFI_MCP_ALLOWED_HOSTS`** set to their own public
+  hostname (plus `localhost,127.0.0.1`) - confirmed live, without it every request behind Caddy
+  gets rejected with `Invalid Host header`. Their own DNS-rebinding protection only trusts
+  loopback by default; `ha-mcp` and `truenas-mcp` don't have this restriction. See
+  [transports.md](https://github.com/sirkirby/unifi-mcp/blob/main/apps/network/docs/transports.md)
+  in the upstream project.
 - Only Claude Desktop has actually been connected and tested so far. Claude Code should
   use the same connector mechanics (`claude mcp add --transport http ...`) but hasn't
   been tried yet.

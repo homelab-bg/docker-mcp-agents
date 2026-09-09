@@ -69,6 +69,11 @@ services:
       UNIFI_PORT: "443"
       UNIFI_SITE: "default"
       UNIFI_VERIFY_SSL: "false"
+      # Confirmed live: without this, the server rejects every request behind
+      # Caddy with "Invalid Host header" - its own DNS-rebinding protection
+      # only trusts localhost/127.0.0.1 by default. Documented at
+      # https://github.com/sirkirby/unifi-mcp/blob/main/apps/network/docs/transports.md
+      UNIFI_MCP_ALLOWED_HOSTS: "localhost,127.0.0.1,${UNIFI_NETWORK_MCP_HOST}"
     secrets:
       - unifi_password
     read_only: true
@@ -89,6 +94,7 @@ services:
       UNIFI_PASSWORD_FILE: /run/secrets/unifi_password
       UNIFI_PORT: "443"
       UNIFI_VERIFY_SSL: "false"
+      UNIFI_MCP_ALLOWED_HOSTS: "localhost,127.0.0.1,${UNIFI_PROTECT_MCP_HOST}"   # see unifi-network-mcp above for why
     secrets:
       - unifi_password
     read_only: true
@@ -109,6 +115,7 @@ services:
       UNIFI_PASSWORD_FILE: /run/secrets/unifi_password
       UNIFI_PORT: "443"
       UNIFI_VERIFY_SSL: "false"
+      UNIFI_MCP_ALLOWED_HOSTS: "localhost,127.0.0.1,${UNIFI_ACCESS_MCP_HOST}"   # see unifi-network-mcp above for why
     secrets:
       - unifi_password
     read_only: true
