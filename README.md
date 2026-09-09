@@ -256,14 +256,14 @@ Both of these need a real terminal (`docker compose run -it`, not `up -d`) - nei
 be scripted unattended:
 
 ```sh
-docker compose run --rm claude-agent 'claude login'
+docker compose run --rm claude-agent claude login
 ```
 Prints a URL - open it on any device and complete the real account login (**a Claude
 subscription account, not an API key - confirmed unsupported by Remote Control at all**).
 The resulting session persists to the `claude-agent-home` volume.
 
 ```sh
-docker compose run --rm -it claude-agent 'claude'
+docker compose run --rm -it claude-agent claude
 ```
 Accepts the workspace-trust dialog for `/workspace` - Remote Control refuses to run in a
 directory that hasn't been explicitly trusted first. Exit once trusted (Ctrl+C or `/exit`).

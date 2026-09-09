@@ -14,4 +14,11 @@ RUN npm install -g @anthropic-ai/claude-code@2.1.266
 USER node
 WORKDIR /workspace
 
-ENTRYPOINT ["/bin/sh", "-c"]
+# No custom ENTRYPOINT - compose's `command:` is a real argv list (see
+# docker-compose.yml), execed directly. Confirmed live: `ENTRYPOINT ["/bin/sh",
+# "-c"]` + a multi-word command string is a real footgun here - only the
+# first token after `-c` actually runs, everything else becomes `sh -c`'s own
+# positional params ($0, $1...) and gets silently dropped, not appended to
+# the command. That's what caused claude-agent to run bare `claude` (which
+# then defaulted to expecting stdin/print input) instead of
+# `claude remote-control ...`.

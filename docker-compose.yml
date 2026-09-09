@@ -281,11 +281,15 @@ services:
     restart: unless-stopped
     networks: [claude_agent_net]
     working_dir: /workspace
-    command: >
-      claude remote-control
-      --spawn same-dir
-      --permission-mode default
-      --name docker-mcp-agents
+    command:
+      - claude
+      - remote-control
+      - --spawn
+      - same-dir
+      - --permission-mode
+      - default
+      - --name
+      - docker-mcp-agents
     volumes:
       - claude-agent-workspace:/workspace
       - claude-agent-home:/home/node   # whole home dir, not just ~/.claude - auth/session state also lives in ~/.claude.json, at the home root, not nested inside ~/.claude/
