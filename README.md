@@ -250,9 +250,9 @@ containerizing it, `claude-agent/Dockerfile` wraps the CLI ourselves (pinned exa
 version, confirmed against both the real npm registry and the installed `claude
 --version`, same convention as every other image here).
 
-### Setup (two genuinely interactive one-time steps)
+### Setup (three genuinely interactive one-time steps)
 
-Both of these need a real terminal (`docker compose run -it`, not `up -d`) - neither can
+All three need a real terminal (`docker compose run -it`, not `up -d`) - none can
 be scripted unattended:
 
 ```sh
@@ -268,9 +268,19 @@ docker compose run --rm -it claude-agent claude
 Accepts the workspace-trust dialog for `/workspace` - Remote Control refuses to run in a
 directory that hasn't been explicitly trusted first. Exit once trusted (Ctrl+C or `/exit`).
 
-After both, `docker compose up -d claude-agent` starts the persistent service for real.
-Until they're done, `restart: unless-stopped` just retries with backoff - harmless, same
-pattern as NetBox's first-run healthcheck race elsewhere in this pipeline.
+```sh
+docker compose run --rm -it claude-agent claude remote-control --spawn same-dir --permission-mode default --name docker-mcp-agents
+```
+Answer `y` at the `Enable Remote Control?` prompt - a separate one-time confirmation from
+login, asked the first time `remote-control` runs in a given directory. Without a real
+terminal attached to answer it, `restart: unless-stopped` just loops forever on this
+prompt (confirmed live - 629 restarts before this was caught). Confirmed the accept
+persists to the same home volume: a subsequent run with stdin closed skips the prompt
+and connects immediately. Ctrl+C once connected.
+
+After all three, `docker compose up -d claude-agent` starts the persistent service for
+real. Until they're done, `restart: unless-stopped` just retries with backoff - harmless,
+same pattern as NetBox's first-run healthcheck race elsewhere in this pipeline.
 
 Then wire in the other five as tools, run once inside the workspace so the config
 persists on the same volume:
@@ -283,7 +293,11 @@ docker compose exec claude-agent sh -c '
   claude mcp add --transport http truenas-mcp        https://truenas-mcp.example.com/mcp
 '
 ```
-(substitute your real hostnames from `.env`).
+(substitute your real hostnames from `.env`). **`remote-control` only reads the MCP
+server list at its own process startup** - if it was already running when you add
+servers, it won't see them until you `docker compose restart claude-agent` (confirmed
+live: `claude mcp list` showed all five healthy immediately, but the connected session
+didn't know about them until a restart re-spawned the process).
 
 ### Design choices
 
