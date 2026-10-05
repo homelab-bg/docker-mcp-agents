@@ -7,7 +7,24 @@ FROM node:22.23.2-alpine
 # `npm view @anthropic-ai/claude-code engines`).
 RUN npm install -g @anthropic-ai/claude-code@2.1.266
 
-RUN apk add --no-cache curl
+# Alpine only ships BusyBox ash as /bin/sh - no bash, and nothing sets
+# $SHELL - confirmed live this breaks the Bash tool entirely ("No suitable
+# shell found") before any command even runs, not a bad-command error.
+# openssh-client is just as load-bearing as bash here: this container's
+# whole point is reaching out to LAN devices (e.g. diagnosing the SMHub
+# NanoMR6), and a shell with no way to SSH anywhere doesn't get you far.
+# git lets fixes found from in here actually get committed, not just
+# diagnosed. The rest are standard diagnostic tools that come up
+# constantly and are missing from a bare Alpine image (dig/nslookup, ping,
+# nc, the modern `ip` command instead of deprecated net-tools, jq for
+# parsing REST API/docker inspect output, rsync for file sync/backups).
+# Deliberately no sshpass - password-based SSH scripting is a bad habit
+# (credentials leak into process lists/shell history); use key auth.
+RUN apk add --no-cache \
+    curl bash git openssh-client \
+    iputils bind-tools netcat-openbsd iproute2 \
+    jq rsync
+ENV SHELL=/bin/bash
 
 # No official Anthropic-published image for this - Remote Control's own docs
 # don't document a containerization path at all, this is us wrapping the CLI
